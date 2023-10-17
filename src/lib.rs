@@ -40,6 +40,9 @@ pub struct OpenGraph {
 
     /// If your object is part of a larger web site, the name which should be displayed for the overall site. e.g., "IMDb".
     pub site_name: Option<String>,
+
+    /// e.g., "#4285f4"
+    pub theme_color: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -118,11 +121,12 @@ impl OpenGraph {
             locale,
             alternate_locale,
             site_name,
+            theme_color,
         } = self;
 
         let (ns, nodes) = match kind.as_ref() {
             Some(OpenGraphType::Article(article)) => {
-                let ns = "og: https://ogp.me/ns# article: http://ogp.me/ns/article# profile: https://ogp.me/ns/profile#";
+                let ns = "og: https://ogp.me/ns# article: http://ogp.me/ns/article#";
                 let nodes = article.to_nodes();
                 (ns, nodes)
             }
@@ -158,13 +162,20 @@ impl OpenGraph {
             children: vec![Node {
                 name: "head",
                 attr: Vec::new(),
-                children: append(
-                    merge(open_graph_nodes, nodes),
-                    Node {
+                children: append_opt(
+                    append(
+                        merge(open_graph_nodes, nodes),
+                        Node {
+                            name: "meta",
+                            attr: vec![("charset", "utf-8".into())],
+                            children: Vec::new(),
+                        },
+                    ),
+                    theme_color.as_deref().map(|color| Node {
                         name: "meta",
-                        attr: vec![("charset", "utf-8".into())],
+                        attr: vec![("name", "theme-color".into()), ("content", color.into())],
                         children: Vec::new(),
-                    },
+                    }),
                 ),
             }],
         }
@@ -189,6 +200,14 @@ pub fn merge<T>(mut xs: Vec<T>, mut ys: Vec<T>) -> Vec<T> {
 
 pub fn append<T>(mut xs: Vec<T>, x: T) -> Vec<T> {
     xs.push(x);
+
+    xs
+}
+
+pub fn append_opt<T>(mut xs: Vec<T>, x: Option<T>) -> Vec<T> {
+    if let Some(x) = x {
+        xs.push(x);
+    }
 
     xs
 }
@@ -245,6 +264,7 @@ fn test_to_html() {
     let og = OpenGraph {
         title: "open graph".to_owned().into(),
         description: "this is open graph".to_owned().into(),
+        theme_color: "#4285f4".to_owned().into(),
         ..Default::default()
     };
 
@@ -254,7 +274,7 @@ fn test_to_html() {
 
     assert_eq!(
         html,
-        r#"<html prefix="og: https://ogp.me/ns#"><head><meta property="og:title" content="open graph"/><meta property="og:description" content="this is open graph"/><meta charset="utf-8"/></head></html>"#
+        r##"<html prefix="og: https://ogp.me/ns#"><head><meta property="og:title" content="open graph"/><meta property="og:description" content="this is open graph"/><meta charset="utf-8"/><meta name="theme-color" content="#4285f4"/></head></html>"##
     )
 }
 
@@ -305,6 +325,6 @@ fn test_article() {
 
     assert_eq!(
         html,
-        r#"<html prefix="og: https://ogp.me/ns# article: http://ogp.me/ns/article# profile: https://ogp.me/ns/profile#"><head><meta property="og:title" content="why can't fly"/><meta property="og:type" content="article"/><meta property="article:published_time" content="2022-12-19T07:39:57+00:00"/><meta property="article:modified_time" content="2023-03-12T02:25:33+00:00"/><meta property="article:expiration_time" content="2024-05-02T15:00:00+00:00"/><meta property="article:section" content="Nothing"/><meta property="article:author" content="https://og.example.com/@syrflover"/><meta property="article:tag" content="chicken"/><meta property="article:tag" content="food"/><meta property="article:tag" content="fry"/><meta charset="utf-8"/></head></html>"#
+        r#"<html prefix="og: https://ogp.me/ns# article: http://ogp.me/ns/article#"><head><meta property="og:title" content="why can't fly"/><meta property="og:type" content="article"/><meta property="article:published_time" content="2022-12-19T07:39:57+00:00"/><meta property="article:modified_time" content="2023-03-12T02:25:33+00:00"/><meta property="article:expiration_time" content="2024-05-02T15:00:00+00:00"/><meta property="article:section" content="Nothing"/><meta property="article:author" content="https://og.example.com/@syrflover"/><meta property="article:tag" content="chicken"/><meta property="article:tag" content="food"/><meta property="article:tag" content="fry"/><meta charset="utf-8"/></head></html>"#
     );
 }
