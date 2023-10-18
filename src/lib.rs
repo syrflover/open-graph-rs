@@ -5,6 +5,7 @@ use std::borrow::Cow;
 
 use article::Article;
 
+/// https://github.com/monperrus/crawler-user-agents/blob/master/crawler-user-agents.json
 #[derive(Debug, Clone, Default)]
 pub struct OpenGraph {
     /// The title of your object as it should appear within the graph, e.g., "The Rock".
@@ -70,6 +71,7 @@ macro_rules! open_graph_nodes_opt {
                         name: "meta",
                         attr: vec![("property", $og.into()), ("content", $x.into())],
                         children: Vec::new(),
+                        text: None,
                     };
                     xs.push(node);
                 }
@@ -79,6 +81,7 @@ macro_rules! open_graph_nodes_opt {
     };
 }
 
+use either::Either;
 pub(crate) use open_graph_nodes_opt;
 
 macro_rules! open_graph_nodes_vec {
@@ -91,6 +94,7 @@ macro_rules! open_graph_nodes_vec {
                         name: "meta",
                         attr: vec![("property", $og.into()), ("content", $x.into())],
                         children: Vec::new(),
+                        text: None,
                     };
                     xs.push(node);
                 }
@@ -105,10 +109,19 @@ use profile::Profile;
 
 impl OpenGraph {
     pub fn to_html(&self) -> String {
-        self.to_node().to_html()
+        self.to_node(None).to_html()
     }
 
-    fn to_node(&self) -> Node {
+    pub fn to_html_with_fallback_message(&self, fallback_message: &str) -> String {
+        self.to_node(Either::Left(fallback_message).into())
+            .to_html()
+    }
+
+    pub fn to_html_with_fallback_node(&self, fallback_node: Node) -> String {
+        self.to_node(Either::Right(fallback_node).into()).to_html()
+    }
+
+    fn to_node<'a>(&'a self, fallback: Option<Either<&'a str, Node<'a>>>) -> Node<'a> {
         let OpenGraph {
             title,
             kind,
@@ -159,25 +172,45 @@ impl OpenGraph {
         Node {
             name: "html",
             attr: vec![("prefix", ns.into())],
-            children: vec![Node {
-                name: "head",
-                attr: Vec::new(),
-                children: append_opt(
-                    append(
-                        merge(open_graph_nodes, nodes),
-                        Node {
+            children: append_opt(
+                vec![Node {
+                    name: "head",
+                    attr: Vec::new(),
+                    children: append_opt(
+                        append(
+                            merge(open_graph_nodes, nodes),
+                            Node {
+                                name: "meta",
+                                attr: vec![("charset", "utf-8".into())],
+                                children: Vec::new(),
+                                text: None,
+                            },
+                        ),
+                        theme_color.as_deref().map(|color| Node {
                             name: "meta",
-                            attr: vec![("charset", "utf-8".into())],
+                            attr: vec![("name", "theme-color".into()), ("content", color.into())],
                             children: Vec::new(),
-                        },
+                            text: None,
+                        }),
                     ),
-                    theme_color.as_deref().map(|color| Node {
-                        name: "meta",
-                        attr: vec![("name", "theme-color".into()), ("content", color.into())],
-                        children: Vec::new(),
-                    }),
-                ),
-            }],
+                    text: None,
+                }],
+                fallback.map(|text_or_node| match text_or_node {
+                    Either::Left(text) => Node {
+                        name: "body",
+                        attr: Vec::new(),
+                        children: vec![],
+                        text: text.into(),
+                    },
+                    Either::Right(node) => Node {
+                        name: "body",
+                        attr: Vec::new(),
+                        children: vec![node],
+                        text: None,
+                    },
+                }),
+            ),
+            text: None,
         }
     }
 }
@@ -220,10 +253,22 @@ where
     x.as_ref().map(|u| u.as_ref())
 }
 
-struct Node<'a> {
-    name: &'static str,
-    attr: Vec<(&'static str, Cow<'a, str>)>,
-    children: Vec<Node<'a>>,
+pub struct Node<'a> {
+    pub name: &'static str,
+    pub attr: Vec<(&'static str, Cow<'a, str>)>,
+    pub children: Vec<Node<'a>>,
+    pub text: Option<&'a str>,
+}
+
+impl Default for Node<'_> {
+    fn default() -> Self {
+        Self {
+            name: "default",
+            attr: Vec::new(),
+            children: Vec::new(),
+            text: None,
+        }
+    }
 }
 
 impl<'a> Node<'a> {
@@ -241,19 +286,25 @@ impl<'a> Node<'a> {
             r.push('\"');
         }
 
-        if self.children.is_empty() {
+        if self.children.is_empty() && self.text.is_none() {
             r.push_str("/>");
-        } else {
-            r.push('>');
 
-            for children in self.children.iter() {
-                r.push_str(&children.to_html());
-            }
-
-            r.push_str("</");
-            r.push_str(self.name);
-            r.push('>');
+            return r;
         }
+
+        r.push('>');
+
+        for children in self.children.iter() {
+            r.push_str(&children.to_html());
+        }
+
+        if let Some(text) = self.text {
+            r.push_str(text);
+        }
+
+        r.push_str("</");
+        r.push_str(self.name);
+        r.push('>');
 
         r
     }
@@ -275,6 +326,48 @@ fn test_to_html() {
     assert_eq!(
         html,
         r##"<html prefix="og: https://ogp.me/ns#"><head><meta property="og:title" content="open graph"/><meta property="og:description" content="this is open graph"/><meta charset="utf-8"/><meta name="theme-color" content="#4285f4"/></head></html>"##
+    )
+}
+
+#[test]
+fn test_to_html_with_fallback_message() {
+    let og = OpenGraph {
+        title: "open graph".to_owned().into(),
+        description: "this is open graph".to_owned().into(),
+        theme_color: "#4285f4".to_owned().into(),
+        ..Default::default()
+    };
+
+    let html = og.to_html_with_fallback_message("fallback message");
+
+    println!("{html}");
+
+    assert_eq!(
+        html,
+        r##"<html prefix="og: https://ogp.me/ns#"><head><meta property="og:title" content="open graph"/><meta property="og:description" content="this is open graph"/><meta charset="utf-8"/><meta name="theme-color" content="#4285f4"/></head><body>fallback message</body></html>"##
+    )
+}
+
+#[test]
+fn test_to_html_with_fallback_node() {
+    let og = OpenGraph {
+        title: "open graph".to_owned().into(),
+        description: "this is open graph".to_owned().into(),
+        theme_color: "#4285f4".to_owned().into(),
+        ..Default::default()
+    };
+
+    let html = og.to_html_with_fallback_node(Node {
+        name: "p",
+        text: "fallback message".into(),
+        ..Default::default()
+    });
+
+    println!("{html}");
+
+    assert_eq!(
+        html,
+        r##"<html prefix="og: https://ogp.me/ns#"><head><meta property="og:title" content="open graph"/><meta property="og:description" content="this is open graph"/><meta charset="utf-8"/><meta name="theme-color" content="#4285f4"/></head><body><p>fallback message</p></body></html>"##
     )
 }
 
