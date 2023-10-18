@@ -71,7 +71,7 @@ macro_rules! open_graph_nodes_opt {
                         name: "meta",
                         attr: vec![("property", $og.into()), ("content", $x.into())],
                         children: Vec::new(),
-                        text: None,
+                        text: None.into(),
                     };
                     xs.push(node);
                 }
@@ -94,7 +94,7 @@ macro_rules! open_graph_nodes_vec {
                         name: "meta",
                         attr: vec![("property", $og.into()), ("content", $x.into())],
                         children: Vec::new(),
-                        text: None,
+                        text: None.into(),
                     };
                     xs.push(node);
                 }
@@ -183,17 +183,17 @@ impl OpenGraph {
                                 name: "meta",
                                 attr: vec![("charset", "utf-8".into())],
                                 children: Vec::new(),
-                                text: None,
+                                text: None.into(),
                             },
                         ),
                         theme_color.as_deref().map(|color| Node {
                             name: "meta",
                             attr: vec![("name", "theme-color".into()), ("content", color.into())],
                             children: Vec::new(),
-                            text: None,
+                            text: None.into(),
                         }),
                     ),
-                    text: None,
+                    text: None.into(),
                 }],
                 fallback.map(|text_or_node| match text_or_node {
                     Either::Left(text) => Node {
@@ -206,11 +206,11 @@ impl OpenGraph {
                         name: "body",
                         attr: Vec::new(),
                         children: vec![node],
-                        text: None,
+                        text: None.into(),
                     },
                 }),
             ),
-            text: None,
+            text: None.into(),
         }
     }
 }
@@ -253,11 +253,48 @@ where
     x.as_ref().map(|u| u.as_ref())
 }
 
+pub struct OptionalCow<'a, T>(Option<Cow<'a, T>>)
+where
+    T: ?Sized + 'a + ToOwned;
+
+impl<'a, T> OptionalCow<'a, T>
+where
+    T: ?Sized + 'a + ToOwned,
+{
+    pub fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+impl<'a, T> From<&'a T> for OptionalCow<'a, T>
+where
+    T: ?Sized + 'a + ToOwned,
+{
+    fn from(x: &'a T) -> Self {
+        Self(Some(Cow::Borrowed(x)))
+    }
+}
+
+impl<'a> From<String> for OptionalCow<'a, str> {
+    fn from(x: String) -> Self {
+        Self(Some(Cow::Owned(x)))
+    }
+}
+
+impl<'a, T> From<Option<&'a T>> for OptionalCow<'a, T>
+where
+    T: ?Sized + 'a + ToOwned,
+{
+    fn from(x: Option<&'a T>) -> Self {
+        Self(x.map(|x| Cow::Borrowed(x)))
+    }
+}
+
 pub struct Node<'a> {
     pub name: &'static str,
     pub attr: Vec<(&'static str, Cow<'a, str>)>,
     pub children: Vec<Node<'a>>,
-    pub text: Option<&'a str>,
+    pub text: OptionalCow<'a, str>,
 }
 
 impl Default for Node<'_> {
@@ -266,7 +303,7 @@ impl Default for Node<'_> {
             name: "default",
             attr: Vec::new(),
             children: Vec::new(),
-            text: None,
+            text: None.into(),
         }
     }
 }
@@ -298,7 +335,7 @@ impl<'a> Node<'a> {
             r.push_str(&children.to_html());
         }
 
-        if let Some(text) = self.text {
+        if let OptionalCow(Some(text)) = &self.text {
             r.push_str(text);
         }
 
