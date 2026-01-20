@@ -31,7 +31,7 @@ pub struct Profile {
 }
 
 impl Profile {
-    pub(crate) fn to_nodes(&self) -> Vec<Node> {
+    pub(crate) fn to_nodes(&self) -> Vec<Node<'_>> {
         let Profile {
             first_name,
             last_name,

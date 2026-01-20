@@ -24,7 +24,7 @@ pub struct Article {
 }
 
 impl Article {
-    pub(crate) fn to_nodes(&self) -> Vec<Node> {
+    pub(crate) fn to_nodes(&self) -> Vec<Node<'_>> {
         let Article {
             published_time,
             modified_time,
